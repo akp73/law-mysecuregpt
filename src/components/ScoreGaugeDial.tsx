@@ -107,6 +107,7 @@ export const ScoreGaugeDial: React.FC<ScoreGaugeDialProps> = ({
   const mainOffset = arcLength * (1 - Math.min(100, Math.max(0, score)) / 100);
 
   // Exact weights applied to the composite score for each question
+  // Exact weights applied to the composite score for each question
   const questionWeights: Record<string, string> = {
     find_and_trust: '25%',
     find_information: '20%',
@@ -120,7 +121,7 @@ export const ScoreGaugeDial: React.FC<ScoreGaugeDialProps> = ({
     browseEasily: '15%',
   };
 
-  // Law firm specific question items matching image #2
+  // Law firm specific question items matching attached style
   const defaultQuestions: AgentQuestionRating[] = [
     {
       id: 'find_and_trust',
@@ -137,7 +138,7 @@ export const ScoreGaugeDial: React.FC<ScoreGaugeDialProps> = ({
     {
       id: 'find_information',
       question: 'Can AI Find Information About Your Law Practice?',
-      score: questionsBreakdown?.findInformation?.score ?? 72,
+      score: questionsBreakdown?.findInformation?.score ?? 78,
       status: questionsBreakdown?.findInformation?.status ?? 'GOOD',
       summary: questionsBreakdown?.findInformation?.summary ?? 'Comprehensive partner bios and thought leadership articles are indexed, but practice group taxonomies lack machine schemas.',
       keyFactors: questionsBreakdown?.findInformation?.keyFactors ?? [
@@ -149,8 +150,8 @@ export const ScoreGaugeDial: React.FC<ScoreGaugeDialProps> = ({
     {
       id: 'products_and_services',
       question: 'Can AI Understand Your Specific Legal Services?',
-      score: questionsBreakdown?.productsAndServices?.score ?? 65,
-      status: questionsBreakdown?.productsAndServices?.status ?? 'FAIR',
+      score: questionsBreakdown?.productsAndServices?.score ?? 78,
+      status: questionsBreakdown?.productsAndServices?.status ?? 'GOOD',
       summary: questionsBreakdown?.productsAndServices?.summary ?? 'General practice areas are recognizable, but AI models cannot parse specific transactional advisory offerings.',
       keyFactors: questionsBreakdown?.productsAndServices?.keyFactors ?? [
         { label: 'Core emerging companies service categories clear', positive: true, impact: '+25 pts' },
@@ -160,9 +161,9 @@ export const ScoreGaugeDial: React.FC<ScoreGaugeDialProps> = ({
     },
     {
       id: 'contact_easily',
-      question: 'Can AI Contact Your Law Firm or Book a Consultation?',
-      score: questionsBreakdown?.contactEasily?.score ?? 58,
-      status: questionsBreakdown?.contactEasily?.status ?? 'FAIR',
+      question: 'Can Contact Your Law Firm or Book a Consultation Meeting?',
+      score: questionsBreakdown?.contactEasily?.score ?? 78,
+      status: questionsBreakdown?.contactEasily?.status ?? 'GOOD',
       summary: questionsBreakdown?.contactEasily?.summary ?? 'General switchboard telephone numbers are exposed, but automated agents cannot book consultations or route matters.',
       keyFactors: questionsBreakdown?.contactEasily?.keyFactors ?? [
         { label: 'Direct office phone numbers verified in schema', positive: true, impact: '+35 pts' },
@@ -173,7 +174,7 @@ export const ScoreGaugeDial: React.FC<ScoreGaugeDialProps> = ({
     {
       id: 'browse_easily',
       question: 'Can AI Seamlessly Browse Your Website?',
-      score: questionsBreakdown?.browseEasily?.score ?? 68,
+      score: questionsBreakdown?.browseEasily?.score ?? 78,
       status: questionsBreakdown?.browseEasily?.status ?? 'GOOD',
       summary: questionsBreakdown?.browseEasily?.summary ?? 'Fast page responses and clear semantic HTML; slight friction from heavy client-side asset rendering.',
       keyFactors: questionsBreakdown?.browseEasily?.keyFactors ?? [
@@ -189,86 +190,108 @@ export const ScoreGaugeDial: React.FC<ScoreGaugeDialProps> = ({
         {
           ...questionsBreakdown.findAndTrust,
           id: 'find_and_trust',
-          question: questionsBreakdown.findAndTrust.question.includes('Law Firm')
-            ? questionsBreakdown.findAndTrust.question
-            : 'Can AI Find and Trust Your Law Firm?',
+          question: 'Can AI Find and Trust Your Law Firm?',
+          score: questionsBreakdown.findAndTrust.score ?? 78,
+          status: questionsBreakdown.findAndTrust.status ?? 'GOOD',
         },
         {
           ...questionsBreakdown.findInformation,
           id: 'find_information',
-          question: questionsBreakdown.findInformation.question.includes('Law Practice')
-            ? questionsBreakdown.findInformation.question
-            : 'Can AI Find Information About Your Law Practice?',
+          question: 'Can AI Find Information About Your Law Practice?',
+          score: questionsBreakdown.findInformation.score ?? 78,
+          status: questionsBreakdown.findInformation.status ?? 'GOOD',
         },
         {
           ...questionsBreakdown.productsAndServices,
           id: 'products_and_services',
-          question: questionsBreakdown.productsAndServices.question.includes('Legal Services')
-            ? questionsBreakdown.productsAndServices.question
-            : 'Can AI Understand Your Specific Legal Services?',
+          question: 'Can AI Understand Your Specific Legal Services?',
+          score: questionsBreakdown.productsAndServices.score ?? 78,
+          status: questionsBreakdown.productsAndServices.status ?? 'GOOD',
         },
         {
           ...questionsBreakdown.contactEasily,
           id: 'contact_easily',
-          question: questionsBreakdown.contactEasily.question.includes('Law Firm')
-            ? questionsBreakdown.contactEasily.question
-            : 'Can AI Contact Your Law Firm or Book a Consultation?',
+          question: 'Can Contact Your Law Firm or Book a Consultation Meeting?',
+          score: questionsBreakdown.contactEasily.score ?? 78,
+          status: questionsBreakdown.contactEasily.status ?? 'GOOD',
         },
         {
           ...questionsBreakdown.browseEasily,
           id: 'browse_easily',
-          question: questionsBreakdown.browseEasily.question.includes('Seamlessly')
-            ? questionsBreakdown.browseEasily.question
-            : 'Can AI Seamlessly Browse Your Website?',
+          question: 'Can AI Seamlessly Browse Your Website?',
+          score: questionsBreakdown.browseEasily.score ?? 78,
+          status: questionsBreakdown.browseEasily.status ?? 'GOOD',
         },
       ]
     : defaultQuestions;
 
   const selectedQuestion = questionsList.find((q) => q.id === selectedQuestionId);
 
+  // Return specific Lucide icon before each question
+  const getQuestionIcon = (id: string) => {
+    switch (id) {
+      case 'find_and_trust':
+      case 'findAndTrust':
+        return <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6 text-[#008752]" />;
+      case 'find_information':
+      case 'findInformation':
+        return <Search className="w-5 h-5 sm:w-6 sm:h-6 text-[#008752]" />;
+      case 'products_and_services':
+      case 'productsAndServices':
+        return <Scale className="w-5 h-5 sm:w-6 sm:h-6 text-[#008752]" />;
+      case 'contact_easily':
+      case 'contactEasily':
+        return <PhoneCall className="w-5 h-5 sm:w-6 sm:h-6 text-[#008752]" />;
+      case 'browse_easily':
+      case 'browseEasily':
+      default:
+        return <Compass className="w-5 h-5 sm:w-6 sm:h-6 text-[#008752]" />;
+    }
+  };
+
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 sm:p-7 space-y-6">
+    <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl shadow-sm p-6 sm:p-8 space-y-6">
       {/* Top Bar: Audited Target Title & View Mode Switcher */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div className="flex flex-wrap items-baseline gap-2.5">
-          <span className="text-sm sm:text-base md:text-lg font-bold text-slate-500">
+          <span className="text-base sm:text-lg md:text-xl font-bold text-slate-500">
             Audited Target:
           </span>
-          <span className="text-xl sm:text-2xl md:text-3xl font-black text-slate-900 tracking-tight">
+          <span className="text-2xl sm:text-3xl md:text-4xl font-black text-slate-900 tracking-tight">
             {displayName}
           </span>
         </div>
 
-        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 shrink-0 self-start sm:self-auto">
+        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0 self-start sm:self-auto">
           <button
             onClick={() => setViewMode('dials')}
-            className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 cursor-pointer ${
+            className={`px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-lg transition-colors flex items-center gap-2 cursor-pointer ${
               viewMode === 'dials'
-                ? 'bg-white text-slate-900 shadow-2xs border border-slate-200'
+                ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
                 : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            <PieChart className="w-3.5 h-3.5" />
+            <PieChart className="w-4 h-4 text-slate-600" />
             <span>5 Dials View</span>
           </button>
           <button
             onClick={() => setViewMode('bars')}
-            className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 cursor-pointer ${
+            className={`px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-lg transition-colors flex items-center gap-2 cursor-pointer ${
               viewMode === 'bars'
-                ? 'bg-white text-slate-900 shadow-2xs border border-slate-200'
+                ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
                 : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            <BarChart3 className="w-3.5 h-3.5" />
+            <BarChart3 className="w-4 h-4 text-slate-600" />
             <span>Bar Charts View</span>
           </button>
         </div>
       </div>
 
-      {/* Hero Section: Speedometer Composite Score on Left + 5 Dials Directly Next to it on Right */}
-      <div className="flex flex-col xl:flex-row items-stretch gap-6 pt-1">
-        {/* Left Column: Speedometer Dial & Composite Score */}
-        <div className="w-full xl:w-72 2xl:w-80 shrink-0 bg-gradient-to-b from-slate-50/90 to-emerald-50/20 border border-slate-200/90 rounded-2xl p-5 flex flex-col items-center justify-between text-center shadow-3xs">
+      {/* Main Section: Speedometer Composite Score on Left + 5 Question Rows on Right */}
+      <div className="flex flex-col lg:flex-row items-stretch gap-8 pt-2">
+        {/* Left Column: Composite Score Card */}
+        <div className="w-full lg:w-80 shrink-0 bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-between text-center shadow-3xs">
           <div className="w-full flex flex-col items-center">
             {/* Speedometer semi-circle arc SVG */}
             <div className="relative w-64 sm:w-72 h-36 sm:h-40 flex items-end justify-center -mt-1 sm:-mt-2">
@@ -320,16 +343,16 @@ export const ScoreGaugeDial: React.FC<ScoreGaugeDialProps> = ({
             </div>
 
             {/* Level Badge Pill */}
-            <div className="mt-2.5">
+            <div className="mt-3">
               <span
-                className={`inline-block text-white text-xs sm:text-[13px] font-black uppercase px-3.5 py-0.5 rounded-full tracking-wider shadow-xs ${mainColor.badge}`}
+                className={`inline-block text-white text-xs sm:text-[13px] font-black uppercase px-4 py-0.5 rounded-full tracking-wider shadow-xs ${mainColor.badge}`}
               >
                 LEVEL {level}
               </span>
             </div>
 
             {/* AI Agent Says: */}
-            <div className="text-lg sm:text-xl font-black text-slate-900 mt-2 tracking-tight">
+            <div className="text-lg sm:text-xl font-black text-slate-900 mt-2.5 tracking-tight">
               AI Agent Says:
             </div>
 
@@ -337,7 +360,7 @@ export const ScoreGaugeDial: React.FC<ScoreGaugeDialProps> = ({
             <h3 className="text-lg sm:text-xl font-black text-slate-900 mt-0.5 tracking-tight px-2 leading-tight">
               {cleanLevelTitle}
             </h3>
-            <p className="text-xs sm:text-sm font-bold text-slate-600 mt-1 uppercase tracking-wider">
+            <p className="text-xs sm:text-sm font-bold text-slate-500 mt-1 uppercase tracking-wider">
               Composite Score
             </p>
           </div>
@@ -348,7 +371,7 @@ export const ScoreGaugeDial: React.FC<ScoreGaugeDialProps> = ({
               <button
                 type="button"
                 onClick={onDownloadReport}
-                className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#008752] hover:bg-[#007043] text-white font-bold text-xs shadow-sm hover:shadow-md transition-all cursor-pointer group"
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#008752] hover:bg-[#007043] text-white font-bold text-xs sm:text-sm shadow-sm hover:shadow-md transition-all cursor-pointer group"
               >
                 <FileDown className="w-4 h-4 transition-transform group-hover:-translate-y-0.5" />
                 <span className="leading-snug">Download Detailed Report &amp; What to Fix</span>
@@ -357,127 +380,169 @@ export const ScoreGaugeDial: React.FC<ScoreGaugeDialProps> = ({
           )}
         </div>
 
-        {/* Right Column: The 5 Dials Attached (Next to Composite Score) */}
+        {/* Right Column: Executive Summary Questions & Attached Mini-Dials */}
         <div className="flex-1 min-w-0 flex flex-col justify-between space-y-4">
-          {/* Header replaced with requested title */}
-          <div className="pb-2 border-b border-slate-100">
-            <h4 className="text-lg sm:text-xl md:text-2xl font-black text-slate-900 tracking-tight">
+          {/* Header */}
+          <div className="pb-3 border-b border-slate-100">
+            <h4 className="text-xl sm:text-2xl md:text-3xl font-black text-slate-900 tracking-tight">
               What AI Agents Found About Your Website?
             </h4>
           </div>
 
-          {/* Dials View matching image #2 */}
+          {/* Dials View matching attached screenshot: Vertical rows with Icons before questions and Dials on the right */}
           {viewMode === 'dials' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
-              {questionsList.map((q, idx) => {
+            <div className="divide-y divide-slate-100">
+              {questionsList.map((q) => {
                 const qColor = getScoreColor(q.score);
-                const r = 36;
-                const circumference = 2 * Math.PI * r; // ~226.19
+                const r = 26;
+                const circumference = 2 * Math.PI * r; // ~163.36
                 const ringOffset = circumference * (1 - Math.min(100, Math.max(0, q.score)) / 100);
                 const isSelected = selectedQuestionId === q.id;
                 const weight = questionWeights[q.id] || '20%';
 
                 return (
-                  <div
-                    key={q.id}
-                    onClick={() => setSelectedQuestionId(isSelected ? null : q.id)}
-                    className={`flex flex-col justify-between p-3.5 sm:p-4 rounded-2xl border transition-all cursor-pointer text-center group ${
-                      isSelected
-                        ? 'border-[#008752] bg-emerald-50/40 ring-2 ring-[#008752]/30 shadow-md'
-                        : 'border-slate-200 hover:border-[#008752]/50 hover:bg-slate-50/70 bg-white shadow-3xs hover:shadow-2xs'
-                    }`}
-                  >
-                    {/* Top Row: circle number on left, question icon in soft green box on right */}
-                    <div className="flex items-center justify-between w-full mb-1">
-                      <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-800 text-xs font-mono font-bold flex items-center justify-center border border-slate-200">
-                        {idx + 1}
-                      </span>
-                      <div className="p-1.5 rounded-lg bg-emerald-50 border border-emerald-200/90 text-[#008752] shadow-3xs flex items-center justify-center">
-                        <HelpCircle className="w-4 h-4 text-[#008752]" />
+                  <div key={q.id} className="py-3.5 sm:py-4 transition-all">
+                    <div
+                      onClick={() => setSelectedQuestionId(isSelected ? null : q.id)}
+                      className="flex items-center justify-between gap-4 p-2 sm:p-3 rounded-xl hover:bg-slate-50/80 transition-all cursor-pointer group"
+                    >
+                      {/* Left Side: Icon before Question + Question Text + Weight Tag */}
+                      <div className="flex items-center gap-3.5 sm:gap-4 min-w-0 flex-1">
+                        {/* Question Icon */}
+                        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-emerald-50 border border-emerald-200/90 text-[#008752] flex items-center justify-center shrink-0 shadow-3xs group-hover:scale-105 transition-transform">
+                          {getQuestionIcon(q.id)}
+                        </div>
+
+                        {/* Question Title & Weight */}
+                        <div className="min-w-0">
+                          <h5 className="text-base sm:text-lg md:text-xl font-bold text-slate-900 tracking-tight leading-snug group-hover:text-[#008752] transition-colors">
+                            {q.question}
+                          </h5>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] sm:text-[11px] font-mono font-bold text-slate-600 bg-slate-100 border border-slate-200/90 rounded-md px-2 py-0.5 inline-flex items-center gap-1 shadow-3xs">
+                              <span className="text-slate-500 font-sans font-medium">Weight:</span>
+                              <span className="text-[#008752] font-black">{weight}</span>
+                            </span>
+                            <span className="text-[11px] text-slate-400 group-hover:text-[#008752] flex items-center gap-0.5 font-medium">
+                              <span>{isSelected ? 'Hide details' : 'View details'}</span>
+                              {isSelected ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Side: Circular Mini-Dial & Status Badge */}
+                      <div className="flex flex-col items-center justify-center shrink-0 pl-2">
+                        {/* Circular Dial */}
+                        <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center">
+                          <svg viewBox="0 0 64 64" className="w-full h-full -rotate-90">
+                            {/* Track */}
+                            <circle
+                              cx="32"
+                              cy="32"
+                              r={r}
+                              fill="none"
+                              stroke="#EAE3D9"
+                              strokeWidth="4.5"
+                            />
+                            {/* Progress Arc */}
+                            <circle
+                              cx="32"
+                              cy="32"
+                              r={r}
+                              fill="none"
+                              stroke={qColor.stroke}
+                              strokeWidth="4.5"
+                              strokeLinecap="round"
+                              strokeDasharray={circumference}
+                              strokeDashoffset={ringOffset}
+                              style={{
+                                transition: 'stroke-dashoffset 0.8s ease-out',
+                              }}
+                            />
+                          </svg>
+
+                          {/* Centered Score */}
+                          <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <span className={`text-base sm:text-lg font-black font-mono leading-none ${qColor.text}`}>
+                              {q.score}
+                            </span>
+                            <span className="text-[9px] sm:text-[10px] text-slate-400 font-mono font-bold leading-none mt-0.5">
+                              / 100
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Status Badge Pill */}
+                        <div className="mt-1">
+                          <span
+                            className={`inline-block text-[10px] sm:text-[11px] font-black uppercase px-2.5 py-0.5 rounded-full ${qColor.lightBg} ${qColor.text} border ${qColor.border} shadow-3xs`}
+                          >
+                            {q.status}
+                          </span>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Question Title on top of the dial */}
-                    <h5 className="mt-1 mb-2 text-xs sm:text-[13px] font-extrabold text-slate-900 leading-snug tracking-tight min-h-[46px] flex items-center justify-center px-1 text-center">
-                      {q.question}
-                    </h5>
+                    {/* Expandable Factor Drivers Drawer */}
+                    {isSelected && (
+                      <div className="mt-3 ml-2 sm:ml-14 p-4 sm:p-5 rounded-xl bg-emerald-50/50 border border-emerald-200/90 shadow-2xs space-y-3 animate-fadeIn">
+                        <div className="flex items-center justify-between pb-2 border-b border-emerald-200/80">
+                          <div className="flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-[#008752]" />
+                            <span className="font-bold text-xs sm:text-sm text-slate-900">
+                              Factor Drivers for: <strong className="text-[#008752]">{q.question}</strong>
+                            </span>
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedQuestionId(null);
+                            }}
+                            className="p-1 rounded hover:bg-emerald-100 text-slate-500 hover:text-slate-800 cursor-pointer"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
 
-                    {/* Circular Progress Dial */}
-                    <div className="relative w-24 h-24 sm:w-28 sm:h-28 mx-auto my-1 flex items-center justify-center">
-                      <svg viewBox="0 0 88 88" className="w-full h-full -rotate-90">
-                        {/* Background track circle */}
-                        <circle
-                          cx="44"
-                          cy="44"
-                          r={r}
-                          fill="none"
-                          stroke="#EFE8DE"
-                          strokeWidth="7"
-                        />
-                        {/* Active progress arc */}
-                        <circle
-                          cx="44"
-                          cy="44"
-                          r={r}
-                          fill="none"
-                          stroke={qColor.stroke}
-                          strokeWidth="7"
-                          strokeLinecap="round"
-                          strokeDasharray={circumference}
-                          strokeDashoffset={ringOffset}
-                          style={{
-                            transition: 'stroke-dashoffset 0.8s ease-out',
-                          }}
-                        />
-                      </svg>
+                        <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-medium">
+                          {q.summary}
+                        </p>
 
-                      {/* Centered Score */}
-                      <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className={`text-2xl sm:text-3xl font-black font-mono leading-none ${qColor.text}`}>
-                          {q.score}
-                        </span>
-                        <span className="text-[11px] sm:text-xs text-slate-400 font-mono font-bold leading-none mt-1 inline-flex items-baseline">
-                          <span className="text-slate-400 font-light italic mr-0.5 opacity-80">/</span>
-                          <span>100</span>
-                        </span>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+                          {q.keyFactors.map((factor, i) => (
+                            <div
+                              key={i}
+                              className="p-2.5 rounded-lg bg-white border border-slate-200/80 flex items-start gap-2 text-xs"
+                            >
+                              {factor.positive ? (
+                                <CheckCircle2 className="w-4 h-4 text-[#008752] shrink-0 mt-0.5" />
+                              ) : (
+                                <X className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold text-slate-800">{factor.label}</div>
+                                <div
+                                  className={`font-mono text-[11px] font-bold mt-0.5 ${
+                                    factor.positive ? 'text-[#008752]' : 'text-rose-600'
+                                  }`}
+                                >
+                                  {factor.impact}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-
-                    {/* Status Pill Badge */}
-                    <div className="my-1">
-                      <span
-                        className={`inline-block text-xs font-black uppercase px-2.5 py-0.5 rounded-full ${qColor.lightBg} ${qColor.text} border ${qColor.border} shadow-3xs`}
-                      >
-                        {q.status}
-                      </span>
-                    </div>
-
-                    {/* Weight Applied to Composite Score */}
-                    <div className="my-1">
-                      <span className="text-[10px] sm:text-[11px] font-mono font-bold text-slate-700 bg-slate-100 border border-slate-200/90 rounded-md px-2 py-0.5 inline-flex items-center gap-1 shadow-3xs">
-                        <span className="text-slate-500 font-sans font-semibold">Weight:</span>
-                        <span className="text-[#008752] font-black">{weight}</span>
-                      </span>
-                    </div>
-
-                    {/* Summary Description */}
-                    <p className="text-[11px] sm:text-xs text-slate-600 font-normal mt-2 leading-relaxed min-h-[50px] line-clamp-4">
-                      {q.summary}
-                    </p>
-
-                    {/* View Factors Expand Toggle */}
-                    <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-center gap-1 text-xs text-[#008752] font-bold group-hover:text-[#007043]">
-                      <span>{isSelected ? 'Hide Factors' : 'View Factors'}</span>
-                      {isSelected ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    </div>
+                    )}
                   </div>
                 );
               })}
             </div>
           ) : (
             /* Bar Charts View Alternative */
-            <div className="space-y-3">
-              {questionsList.map((q, idx) => {
+            <div className="space-y-4 pt-1">
+              {questionsList.map((q) => {
                 const qColor = getScoreColor(q.score);
                 const isSelected = selectedQuestionId === q.id;
                 const weight = questionWeights[q.id] || '20%';
@@ -486,18 +551,18 @@ export const ScoreGaugeDial: React.FC<ScoreGaugeDialProps> = ({
                   <div
                     key={q.id}
                     onClick={() => setSelectedQuestionId(isSelected ? null : q.id)}
-                    className={`p-3.5 sm:p-4 rounded-xl border transition-all cursor-pointer ${
+                    className={`p-4 rounded-xl border transition-all cursor-pointer ${
                       isSelected
                         ? 'border-[#008752] bg-emerald-50/30 shadow-sm'
                         : 'border-slate-200 hover:border-[#008752]/40 bg-white'
                     }`}
                   >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-800 text-xs font-mono font-bold flex items-center justify-center border border-slate-200">
-                          {idx + 1}
-                        </span>
-                        <span className="font-extrabold text-xs sm:text-sm text-slate-900">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 text-[#008752] flex items-center justify-center shrink-0">
+                          {getQuestionIcon(q.id)}
+                        </div>
+                        <span className="font-extrabold text-sm sm:text-base text-slate-900">
                           {q.question}
                         </span>
                       </div>
@@ -511,7 +576,7 @@ export const ScoreGaugeDial: React.FC<ScoreGaugeDialProps> = ({
                         >
                           {q.status}
                         </span>
-                        <span className="font-mono font-bold text-sm text-slate-900 w-14 text-right">
+                        <span className="font-mono font-bold text-sm text-slate-900 w-16 text-right">
                           {q.score}/100
                         </span>
                       </div>
@@ -531,65 +596,9 @@ export const ScoreGaugeDial: React.FC<ScoreGaugeDialProps> = ({
               })}
             </div>
           )}
-
-          {/* Expanded Factor Drivers Panel */}
-          {selectedQuestion && (
-            <div className="p-4 sm:p-5 rounded-xl bg-emerald-50/50 border border-emerald-200/90 shadow-2xs space-y-3 animate-fadeIn">
-              <div className="flex items-center justify-between pb-2 border-b border-emerald-200/80">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-[#008752]" />
-                  <span className="font-bold text-xs sm:text-sm text-slate-900">
-                    Factor Drivers for: <strong className="text-[#008752]">{selectedQuestion.question}</strong>
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono text-slate-600 bg-white border border-slate-200 rounded px-2 py-0.5 font-bold">
-                    Weight: {questionWeights[selectedQuestion.id] || '20%'}
-                  </span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedQuestionId(null);
-                    }}
-                    className="p-1 rounded hover:bg-emerald-100 text-slate-500 hover:text-slate-800 cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-medium">
-                {selectedQuestion.summary}
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
-                {selectedQuestion.keyFactors.map((factor, i) => (
-                  <div
-                    key={i}
-                    className="p-2.5 rounded-lg bg-white border border-slate-200/80 flex items-start gap-2 text-xs"
-                  >
-                    {factor.positive ? (
-                      <CheckCircle2 className="w-4 h-4 text-[#008752] shrink-0 mt-0.5" />
-                    ) : (
-                      <X className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-slate-800">{factor.label}</div>
-                      <div
-                        className={`font-mono text-[11px] font-bold mt-0.5 ${
-                          factor.positive ? 'text-[#008752]' : 'text-rose-600'
-                        }`}
-                      >
-                        {factor.impact}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
   );
 };
+
