@@ -1,0 +1,6 @@
+{
+  "name": "AgentReady - AI Agent Readiness Auditor & Benchmark",
+  "description": "AI Agent Readiness Auditor for Law Firms (law.mysecuregpt.com). Analyzes robots.txt permissions, scans structured legal schemas, calculates composite scores, and benchmarks against top peer law firms.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

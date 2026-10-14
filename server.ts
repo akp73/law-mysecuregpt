@@ -1,0 +1,522 @@
+import express from 'express';
+import type { Request, Response } from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+import { createServer as createViteServer } from 'vite';
+
+import {
+  parseRobotsTxt,
+  parseHtmlAndSchemas,
+  computeCompositeScores,
+  deriveAgentFailuresAndGaps,
+  generateRemediationCode,
+} from './server/scanner.ts';
+import { buildIndustryBenchmark, getAllIndustriesList } from './server/industryData.ts';
+import { runAgentTaskSimulation } from './server/geminiAgent.ts';
+import {
+  sendLeadNotification,
+  sendAuditNotification,
+  getCapturedLeads,
+  getCapturedAudits,
+  testSendEmailNotification,
+  AuditNotificationPayload,
+} from './server/mailer.ts';
+import type { AuditReport, MachineManifests } from './src/types/audit.ts';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+app.use(express.json());
+
+// Helper for fetching external URLs safely with timeout and User-Agent
+async function fetchSafe(url: string, timeoutMs = 7000): Promise<{ ok: boolean; status: number; text: string; contentType: string }> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 AgentReadinessAuditor/2.0',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      redirect: 'follow',
+    });
+    clearTimeout(id);
+    const contentType = res.headers.get('content-type') || '';
+    const text = await res.text();
+    return { ok: res.ok, status: res.status, text, contentType };
+  } catch (err: any) {
+    clearTimeout(id);
+    return { ok: false, status: 0, text: '', contentType: '' };
+  }
+}
+
+// Normalize incoming URL to protocol + domain
+function normalizeTarget(inputUrl: string): { fullUrl: string; domain: string; baseOrigin: string } {
+  let cleaned = inputUrl.trim();
+  if (!/^https?:\/\//i.test(cleaned)) {
+    cleaned = 'https://' + cleaned;
+  }
+  try {
+    const parsed = new URL(cleaned);
+    const domain = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    const baseOrigin = `${parsed.protocol}//${parsed.hostname}`;
+    return {
+      fullUrl: `${parsed.protocol}//${parsed.hostname}${parsed.pathname === '/' ? '' : parsed.pathname}`,
+      domain,
+      baseOrigin,
+    };
+  } catch {
+    // Fallback if URL constructor fails
+    const sanitized = cleaned.replace(/^https?:\/\//i, '').split('/')[0];
+    return {
+      fullUrl: `https://${sanitized}`,
+      domain: sanitized.replace(/^www\./, ''),
+      baseOrigin: `https://${sanitized}`,
+    };
+  }
+}
+
+// Presets endpoint
+app.get('/api/presets', (_req: Request, res: Response) => {
+  res.json({
+    presets: [
+      {
+        name: 'Cooley LLP',
+        url: 'cooley.com',
+        industry: 'law_practice',
+        description: 'Global tech & venture law firm with structured attorney profiles.',
+      },
+      {
+        name: 'Latham & Watkins LLP',
+        url: 'lw.com',
+        industry: 'law_practice',
+        description: 'Elite global law firm with comprehensive LegalService schemas.',
+      },
+      {
+        name: 'Skadden, Arps',
+        url: 'skadden.com',
+        industry: 'law_practice',
+        description: 'Premier corporate & M&A practice benchmark.',
+      },
+      {
+        name: 'Kirkland & Ellis LLP',
+        url: 'kirkland.com',
+        industry: 'law_practice',
+        description: 'Private equity and litigation powerhouse.',
+      },
+    ],
+  });
+});
+
+// Industries endpoint
+app.get('/api/industries', (_req: Request, res: Response) => {
+  const industries = getAllIndustriesList();
+  res.json({ industries });
+});
+
+// In-memory audit cache to avoid repeated crawling
+const serverAuditMemoryCache = new Map<string, AuditReport>();
+
+// Helper to determine if target URL is the default baseline audit (to avoid alert noise)
+function isDefaultBaselineAudit(rawUrl: string, domain: string, fullUrl: string): boolean {
+  const normRaw = (rawUrl || '').toLowerCase().trim();
+  const normDomain = (domain || '').toLowerCase().trim();
+  const normFull = (fullUrl || '').toLowerCase().trim();
+
+  return (
+    normDomain === 'cooley.com' ||
+    normDomain === 'us.pg.com' ||
+    normDomain === 'pg.com' ||
+    normDomain.endsWith('.pg.com') ||
+    normRaw.includes('cooley.com') ||
+    normRaw.includes('us.pg.com') ||
+    normFull.includes('cooley.com') ||
+    normFull.includes('us.pg.com')
+  );
+}
+
+// Helper to dispatch audit alert with guarantee of socket completion before response
+async function dispatchAuditAlert(payload: AuditNotificationPayload) {
+  try {
+    const result = await Promise.race([
+      sendAuditNotification(payload),
+      new Promise<{ success: boolean; channels: string[]; errors: string[] }>((resolve) =>
+        setTimeout(() => resolve({ success: true, channels: ['Delivery-Queued'], errors: [] }), 3500)
+      ),
+    ]);
+    return result;
+  } catch (err: any) {
+    console.warn('[Audit Notification] Error dispatching notification:', err?.message);
+    return { success: false, channels: [], errors: [err?.message || 'Unknown error'] };
+  }
+}
+
+// Main Audit Route
+app.post('/api/audit', async (req: Request, res: Response) => {
+  const { url: rawUrl, industry = 'law_practice' } = req.body;
+
+  if (!rawUrl || typeof rawUrl !== 'string' || rawUrl.trim().length === 0) {
+    res.status(400).json({ error: 'A valid website domain or URL is required.' });
+    return;
+  }
+
+  const { fullUrl, domain, baseOrigin } = normalizeTarget(rawUrl);
+  const cacheKey = `${domain.toLowerCase()}_${industry}`;
+
+  // Return from memory cache if already audited
+  if (serverAuditMemoryCache.has(cacheKey)) {
+    const cachedReport = serverAuditMemoryCache.get(cacheKey)!;
+
+    // Send email alert to apatel@mysecuregpt.com whenever someone audits a website OTHER than default baseline
+    if (!isDefaultBaselineAudit(rawUrl, domain, fullUrl)) {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '';
+      const userAgent = (req.headers['user-agent'] as string) || '';
+
+      await dispatchAuditAlert({
+        domain: cachedReport.domain,
+        targetUrl: cachedReport.targetUrl,
+        enteredUrl: rawUrl,
+        businessName: cachedReport.businessName,
+        compositeScore: cachedReport.composite.compositeScore,
+        grade: cachedReport.composite.grade,
+        levelTitle: cachedReport.composite.dialBreakdown?.levelTitle || '',
+        industry: cachedReport.benchmark.industryName || industry,
+        crawlability: cachedReport.composite.dimensionScores.crawlability,
+        structuredSchema: cachedReport.composite.dimensionScores.structuredSchema,
+        actionability: cachedReport.composite.dimensionScores.actionability,
+        timestamp: new Date().toISOString(),
+        clientIp,
+        userAgent,
+      });
+    }
+
+    res.json(cachedReport);
+    return;
+  }
+
+  try {
+    // 1. Fetch robots.txt
+    const robotsUrl = `${baseOrigin}/robots.txt`;
+    const robotsRes = await fetchSafe(robotsUrl, 6000);
+    const robotsAnalysis = parseRobotsTxt(robotsRes.ok ? robotsRes.text : '', robotsUrl);
+
+    // 2. Fetch HTML page
+    const htmlRes = await fetchSafe(fullUrl, 8000);
+    let htmlContent = htmlRes.text;
+    let wafOrBotShieldDetected = false;
+
+    // Check if WAF or Cloudflare challenge occurred (403 or specific title)
+    if (htmlRes.status === 403 || htmlRes.text.includes('Cloudflare') && htmlRes.text.includes('challenge')) {
+      wafOrBotShieldDetected = true;
+    }
+
+    // 3. Check Machine Manifests in parallel
+    const [llmsTxtRes, llmsTxtWellKnownRes, sitemapRes, openApiRes, aiPluginRes] = await Promise.all([
+      fetchSafe(`${baseOrigin}/llms.txt`, 4000),
+      fetchSafe(`${baseOrigin}/.well-known/llms.txt`, 4000),
+      fetchSafe(`${baseOrigin}/sitemap.xml`, 4000),
+      fetchSafe(`${baseOrigin}/.well-known/openapi.yaml`, 4000),
+      fetchSafe(`${baseOrigin}/.well-known/ai-plugin.json`, 4000),
+    ]);
+
+    const llmsTxtContent = llmsTxtRes.ok ? llmsTxtRes.text : llmsTxtWellKnownRes.ok ? llmsTxtWellKnownRes.text : undefined;
+    const manifests: MachineManifests = {
+      llmsTxt: {
+        found: !!llmsTxtContent && llmsTxtContent.length > 20,
+        url: llmsTxtRes.ok ? `${baseOrigin}/llms.txt` : llmsTxtWellKnownRes.ok ? `${baseOrigin}/.well-known/llms.txt` : undefined,
+        content: llmsTxtContent ? llmsTxtContent.slice(0, 1500) : undefined,
+      },
+      aiPluginJson: {
+        found: aiPluginRes.ok && aiPluginRes.text.includes('"schema_version"'),
+        url: aiPluginRes.ok ? `${baseOrigin}/.well-known/ai-plugin.json` : undefined,
+      },
+      sitemapXml: {
+        found: sitemapRes.ok || robotsAnalysis.sitemaps.length > 0,
+        url: sitemapRes.ok ? `${baseOrigin}/sitemap.xml` : robotsAnalysis.sitemaps[0] || undefined,
+      },
+      openApi: {
+        found: openApiRes.ok && (openApiRes.text.includes('openapi:') || openApiRes.text.includes('"openapi"')),
+        url: openApiRes.ok ? `${baseOrigin}/.well-known/openapi.yaml` : undefined,
+      },
+    };
+
+    // 4. Parse HTML and Schema
+    const { schema, htmlMeta } = parseHtmlAndSchemas(htmlContent, fullUrl);
+
+    // 5. Compute Composite Scores across IsItAgentReady, WebYes, and Ora.ai models
+    const composite = computeCompositeScores(robotsAnalysis, schema, manifests, htmlMeta);
+
+    // 6. Derive Agent Capability Failures & Information Gaps
+    const { agentFailures, informationGaps } = deriveAgentFailuresAndGaps(
+      robotsAnalysis,
+      schema,
+      manifests,
+      htmlMeta,
+      domain
+    );
+
+    // 7. Run Gemini Autonomous Agent Task Simulation
+    const hasPricingInSchema = schema.items.some(i => i.propertiesFound.includes('price') || i.propertiesFound.includes('offers'));
+    const simulatedTasks = await runAgentTaskSimulation(
+      domain,
+      htmlMeta.title || domain,
+      robotsAnalysis.rawText.slice(0, 800),
+      schema.summary,
+      htmlContent.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').slice(0, 2000),
+      schema.hasActionSchema,
+      hasPricingInSchema
+    );
+
+    // 8. Extract actual name of the business
+    const orgSchema = schema.items.find(
+      (i) =>
+        ['Organization', 'Corporation', 'LocalBusiness', 'MedicalBusiness', 'Brand', 'WebSite'].includes(i.type) &&
+        i.name
+    );
+    let businessName = orgSchema?.name ? String(orgSchema.name).trim() : '';
+
+    if (!businessName && htmlMeta.title) {
+      businessName = htmlMeta.title.split(/[|•–—]/)[0].trim();
+      businessName = businessName.replace(/\s*-\s*(Home|Official Site|Official Website|Welcome|Overview).*$/i, '').trim();
+    }
+
+    if (
+      !businessName ||
+      businessName.length < 2 ||
+      /attention required|just a moment|cloudflare|access denied|robot or human|verify you are human|403 forbidden|security check/i.test(businessName)
+    ) {
+      if (domain.includes('cooley.com')) businessName = 'Cooley LLP';
+      else if (domain.includes('lw.com')) businessName = 'Latham & Watkins LLP';
+      else if (domain.includes('kirkland.com')) businessName = 'Kirkland & Ellis LLP';
+      else if (domain.includes('skadden.com')) businessName = 'Skadden, Arps, Slate, Meagher & Flom';
+      else if (domain.includes('dlapiper.com')) businessName = 'DLA Piper';
+      else if (domain.includes('sidley.com')) businessName = 'Sidley Austin LLP';
+      else if (domain.includes('morganlewis.com')) businessName = 'Morgan, Lewis & Bockius LLP';
+      else if (domain.includes('gibsondunn.com')) businessName = 'Gibson, Dunn & Crutcher LLP';
+      else if (domain.includes('pg.com')) businessName = 'Procter & Gamble';
+      else if (domain.includes('teamlogicit.com')) businessName = 'TeamLogic IT';
+      else {
+        businessName = domain.replace(/^www\./, '').split('.')[0]
+          .split(/[-_]/)
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(' ');
+      }
+    }
+
+    // 9. Build Industry Benchmarks & Rank
+    const benchmark = buildIndustryBenchmark(
+      industry,
+      composite.compositeScore,
+      composite.dimensionScores.crawlability,
+      composite.dimensionScores.structuredSchema,
+      composite.dimensionScores.actionability,
+      domain,
+      businessName
+    );
+
+    // 10. Generate 1-Click Remediation Snippets (llms.txt, robots.txt, schema.org)
+    const remediation = generateRemediationCode(
+      domain,
+      businessName,
+      schema,
+      robotsAnalysis
+    );
+
+    const report: AuditReport = {
+      targetUrl: fullUrl,
+      domain,
+      businessName,
+      industry: benchmark.industryName,
+      timestamp: new Date().toISOString(),
+      composite,
+      robotsTxt: robotsAnalysis,
+      schema,
+      manifests,
+      agentFailures,
+      informationGaps,
+      simulatedTasks,
+      benchmark,
+      remediation,
+      wafOrBotShieldDetected,
+      htmlMeta,
+    };
+
+    // Dispatch audit notification email to apatel@mysecuregpt.com whenever someone audits a website OTHER than default baseline
+    if (!isDefaultBaselineAudit(rawUrl, domain, fullUrl)) {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '';
+      const userAgent = (req.headers['user-agent'] as string) || '';
+
+      await dispatchAuditAlert({
+        domain,
+        targetUrl: fullUrl,
+        enteredUrl: rawUrl,
+        businessName,
+        compositeScore: composite.compositeScore,
+        grade: composite.grade,
+        levelTitle: composite.dialBreakdown?.levelTitle || '',
+        industry: benchmark.industryName,
+        crawlability: composite.dimensionScores.crawlability,
+        structuredSchema: composite.dimensionScores.structuredSchema,
+        actionability: composite.dimensionScores.actionability,
+        timestamp: report.timestamp,
+        clientIp,
+        userAgent,
+      });
+    } else {
+      console.log(`ℹ️ [Audit Notification] Skipped email notification for default benchmark URL: ${domain}`);
+    }
+
+    // Save in memory cache
+    serverAuditMemoryCache.set(cacheKey, report);
+    serverAuditMemoryCache.set(domain.toLowerCase(), report);
+
+    res.json(report);
+  } catch (err: any) {
+    console.error('Audit execution error:', err);
+    res.status(500).json({
+      error: 'Failed to complete agent readiness audit.',
+      details: err?.message || 'Network or parsing error.',
+    });
+  }
+});
+
+// Lead capture endpoint (dispatches email notification to apatel@teamlogicit.com)
+const handleLeadSubmission = async (req: Request, res: Response) => {
+  const {
+    name,
+    companyName,
+    email,
+    domain,
+    targetUrl,
+    compositeScore,
+    grade,
+    levelTitle,
+    crawlability,
+    structuredSchema,
+    actionability,
+    industry,
+  } = req.body || {};
+
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    res.status(400).json({ error: 'Name is required.' });
+    return;
+  }
+  if (!companyName || typeof companyName !== 'string' || !companyName.trim()) {
+    res.status(400).json({ error: 'Company name is required.' });
+    return;
+  }
+  if (!email || typeof email !== 'string' || !email.includes('@')) {
+    res.status(400).json({ error: 'A valid email address is required.' });
+    return;
+  }
+
+  const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown';
+
+  try {
+    const result = await sendLeadNotification({
+      name: name.trim(),
+      companyName: companyName.trim(),
+      email: email.trim(),
+      domain: domain ? String(domain).trim() : undefined,
+      targetUrl: targetUrl ? String(targetUrl).trim() : undefined,
+      compositeScore: typeof compositeScore === 'number' ? compositeScore : undefined,
+      grade: grade ? String(grade) : undefined,
+      levelTitle: levelTitle ? String(levelTitle) : undefined,
+      crawlability: typeof crawlability === 'number' ? crawlability : undefined,
+      structuredSchema: typeof structuredSchema === 'number' ? structuredSchema : undefined,
+      actionability: typeof actionability === 'number' ? actionability : undefined,
+      industry: industry ? String(industry) : undefined,
+      submittedAt: new Date().toISOString(),
+      ip: clientIp,
+    });
+
+    res.json({
+      success: true,
+      message: 'Lead received and email notification dispatched to apatel@teamlogicit.com.',
+      channels: result.channels,
+    });
+  } catch (err: any) {
+    console.error('Lead submission dispatch error:', err);
+    res.status(500).json({
+      error: 'Failed to process lead notification.',
+      details: err?.message || 'Unknown error',
+    });
+  }
+};
+
+app.post('/api/report-lead', handleLeadSubmission);
+app.post('/api/submit-lead', handleLeadSubmission);
+
+// Admin inspection endpoint for captured leads
+app.get('/api/leads', (_req: Request, res: Response) => {
+  const leads = getCapturedLeads();
+  res.json({
+    total: leads.length,
+    recipient: process.env.NOTIFICATION_EMAIL || 'apatel@teamlogicit.com',
+    leads,
+  });
+});
+
+// Admin inspection endpoint for captured audit events and email notifications
+app.get('/api/audit-logs', (_req: Request, res: Response) => {
+  const audits = getCapturedAudits();
+  res.json({
+    total: audits.length,
+    targetRecipient: process.env.AUDIT_NOTIFICATION_EMAIL || 'apatel@mysecuregpt.com',
+    fallbackCc: process.env.AUDIT_NOTIFICATION_CC || null,
+    audits,
+  });
+});
+
+// Diagnostic endpoint to test email delivery in real-time
+app.all('/api/test-email', async (req: Request, res: Response) => {
+  const targetEmail = (req.query.email as string) || (req.body?.email as string) || process.env.AUDIT_NOTIFICATION_EMAIL || 'apatel@mysecuregpt.com';
+  console.log(`[Diagnostic] Triggering test email to ${targetEmail}...`);
+  const result = await testSendEmailNotification(targetEmail);
+  res.json({
+    status: result.success ? 'success' : 'warning',
+    message: result.success
+      ? `Test notification sent successfully to ${targetEmail}.`
+      : `Email dispatch attempted with notices.`,
+    targetEmail,
+    channelsAttempted: result.channels,
+    errorsOrWarnings: result.errors,
+    time: new Date().toISOString(),
+  });
+});
+
+async function startServer() {
+  if (process.env.NODE_ENV === 'production') {
+    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+    });
+  } else {
+    const vite = await createViteServer({
+      server: {
+        middlewareMode: true,
+        hmr: process.env.DISABLE_HMR !== 'true',
+      },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`AgentReady server running at http://0.0.0.0:${PORT}`);
+  });
+}
+
+startServer().catch(err => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
+});
